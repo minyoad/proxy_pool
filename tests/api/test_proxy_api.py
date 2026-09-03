@@ -26,8 +26,14 @@ def mocks(app):
 
 class TestIndex:
 
-    def test_index_returns_api_list(self, client):
+    def test_index_returns_html(self, client):
         resp = client.get("/")
+        assert resp.status_code == 200
+        assert "text/html" in resp.content_type
+        assert b"Proxy Pool" in resp.data
+
+    def test_api_index_returns_api_list(self, client):
+        resp = client.get("/api/")
         assert resp.status_code == 200
         data = resp.get_json()
         assert "url" in data
