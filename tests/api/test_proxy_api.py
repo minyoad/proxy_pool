@@ -132,6 +132,38 @@ class TestAll:
         assert data == []
 
 
+class TestList:
+
+    def test_list_returns_plain_text(self, client, mocks):
+        """纯文本输出, 每行一个 ip:port"""
+        proxies = [
+            Proxy("1.2.3.4:8080", source="test"),
+            Proxy("5.6.7.8:443", source="test", https=True),
+        ]
+        mocks["getAll"].return_value = proxies
+
+        resp = client.get("/list/")
+        assert resp.status_code == 200
+        assert resp.mimetype == "text/plain"
+        assert resp.data == b"1.2.3.4:8080\n5.6.7.8:443\n"
+
+    def test_list_empty_returns_empty_body(self, client, mocks):
+        """空池子返回空body"""
+        mocks["getAll"].return_value = []
+
+        resp = client.get("/list/")
+        assert resp.status_code == 200
+        assert resp.data == b""
+
+    def test_list_with_filters(self, client, mocks):
+        """过滤参数透传到 handler"""
+        mocks["getAll"].return_value = [Proxy("1.2.3.4:8080", source="test", country="中国")]
+
+        resp = client.get("/list/?country=CN")
+        assert resp.data == b"1.2.3.4:8080\n"
+        mocks["getAll"].assert_called_with(False, filters={"country": "CN"})
+
+
 class TestDelete:
 
     def test_delete_calls_handler(self, client, mocks):

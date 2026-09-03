@@ -49,6 +49,7 @@ api_list = [
     {"url": "/pop", "params": "type: ''https'|''; country/province/city/isp: 按属性过滤", "desc": "get and delete a proxy"},
     {"url": "/delete", "params": "proxy: 'e.g. 127.0.0.1:8080'", "desc": "delete an unable proxy"},
     {"url": "/all", "params": "type: ''https'|''; country/province/city/isp: 按属性过滤", "desc": "get all proxy from proxy pool"},
+    {"url": "/list", "params": "type: ''https'|''; country/province/city/isp: 按属性过滤", "desc": "get all proxy as plain text (ip:port per line)"},
     {"url": "/count", "params": "", "desc": "return proxy count"}
     # 'refresh': 'refresh proxy pool',
 ]
@@ -94,6 +95,15 @@ def getAll():
     https = request.args.get("type", "").lower() == 'https'
     proxies = proxy_handler.getAll(https, filters=_get_filters())
     return jsonify([_.to_dict for _ in proxies])
+
+
+@app.route('/list/')
+def getList():
+    """纯文本输出 ip:port 列表, 每行一个"""
+    https = request.args.get("type", "").lower() == 'https'
+    proxies = proxy_handler.getAll(https, filters=_get_filters())
+    return Response("\n".join(_.proxy for _ in proxies) + ("\n" if proxies else ""),
+                    mimetype="text/plain")
 
 
 @app.route('/delete/', methods=['GET'])
