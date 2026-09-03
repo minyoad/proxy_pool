@@ -7,8 +7,19 @@ services:
       - "5010:5010"
     links:
       - proxy_redis
+    depends_on:
+      proxy_redis:
+        condition: service_healthy
     environment:
       DB_CONN: "redis://@proxy_redis:6379/0"
+    restart: unless-stopped
   proxy_redis:
     image: "redis"
     container_name: proxy_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
