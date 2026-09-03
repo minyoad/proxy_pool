@@ -71,6 +71,7 @@ class TestFetcherInterface(object):
         ("fetcher.sources.daili66", "DaiLi66Fetcher"),
         ("fetcher.sources.roundproxies", "RoundProxiesFetcher"),
         ("fetcher.sources.github_list", "GithubListFetcher"),
+        ("fetcher.sources.github_json", "GithubJsonFetcher"),
     ]
 
     def test_all_fetchers_have_name_url_enabled(self):
@@ -477,4 +478,77 @@ class TestGithubListFetcher(object):
         text = "1.2.3.4:8080\nnot a proxy\n# comment\n1.2.3.4:8\n5.6.7.8:3128\n"
         mock_wr.return_value.get.return_value = _make_response(text=text)
         result = list(GithubListFetcher().fetch())
+        assert sorted(result) == ["1.2.3.4:8080", "5.6.7.8:3128"]
+
+
+class TestGithubJsonFetcher(object):
+
+    @patch("fetcher.sources.github_json.WebRequest")
+    def test_fetch(self, mock_wr):
+        from fetcher.sources.github_json import GithubJsonFetcher
+        json_data = {
+            "updated_at": "2026-09-03 03:53:02 UTC",
+            "count": 2,
+            "data": [
+                {"ip": "1.2.3.4", "port": 8080, "protocol": "Http",
+                 "country": "KH", "anonymity": "Elite", "speed": 1007},
+                {"ip": "5.6.7.8", "port": 3128, "protocol": "Http",
+                 "country": "CN", "anonymity": "Elite", "speed": 1092},
+            ]
+        }
+        mock_wr.return_value.get.return_value = _make_response(json_data=json_data)
+        result = list(GithubJsonFetcher().fetch())
+        assert sorted(result) == ["1.2.3.4:8080", "5.6.7.8:3128"]
+
+    @patch("fetcher.sources.github_json.WebRequest")
+    def test_fetch_filters_socks(self, mock_wr):
+        """Socks4/Socks5 代理被过滤"""
+        from fetcher.sources.github_json import GithubJsonFetcher
+        json_data = {
+            "data": [
+                {"ip": "1.2.3.4", "port": 8080, "protocol": "Http"},
+                {"ip": "5.6.7.8", "port": 1080, "protocol": "Socks4"},
+                {"ip": "9.9.9.9", "port": 1080, "protocol": "Socks5"},
+            ]
+        }
+        mock_wr.return_value.get.return_value = _make_response(json_data=json_data)
+        result = list(GithubJsonFetcher().fetch())
+        assert result == ["1.2.3.4:8080"]
+
+    @patch("fetcher.sources.github_json.WebRequest")
+    def test_fetch_empty_data_returns_empty(self, mock_wr):
+        from fetcher.sources.github_json import GithubJsonFetcher
+        mock_wr.return_value.get.return_value = _make_response(json_data={})
+        result = list(GithubJsonFetcher().fetch())
+        assert result == []
+
+    @patch("fetcher.sources.github_json.WebRequest")
+    def test_fetch_skips_missing_ip_or_port(self, mock_wr):
+        """缺 ip 或 port 的条目被跳过"""
+        from fetcher.sources.github_json import GithubJsonFetcher
+        json_data = {
+            "data": [
+                {"ip": "1.2.3.4", "port": 8080, "protocol": "Http"},
+                {"port": 3128, "protocol": "Http"},
+                {"ip": "5.6.7.8", "protocol": "Http"},
+                {"ip": "", "port": 80, "protocol": "Http"},
+            ]
+        }
+        mock_wr.return_value.get.return_value = _make_response(json_data=json_data)
+        result = list(GithubJsonFetcher().fetch())
+        assert result == ["1.2.3.4:8080"]
+
+    @patch("fetcher.sources.github_json.WebRequest")
+    def test_fetch_deduplicates(self, mock_wr):
+        """重复代理去重"""
+        from fetcher.sources.github_json import GithubJsonFetcher
+        json_data = {
+            "data": [
+                {"ip": "1.2.3.4", "port": 8080, "protocol": "Http"},
+                {"ip": "1.2.3.4", "port": 8080, "protocol": "Http"},
+                {"ip": "5.6.7.8", "port": 3128, "protocol": "Http"},
+            ]
+        }
+        mock_wr.return_value.get.return_value = _make_response(json_data=json_data)
+        result = list(GithubJsonFetcher().fetch())
         assert sorted(result) == ["1.2.3.4:8080", "5.6.7.8:3128"]
