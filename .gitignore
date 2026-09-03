@@ -11,3 +11,4 @@ docs/specs/
 .coverage
 .pytest_cache/
 htmlcov/
+.venv/

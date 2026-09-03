@@ -17,6 +17,7 @@ __author__ = 'JHao'
 from redis.exceptions import TimeoutError, ConnectionError, ResponseError
 from redis.connection import BlockingConnectionPool
 from handler.logHandler import LogHandler
+from db.dbClient import filter_proxies
 from random import choice
 from redis import Redis
 import json
@@ -48,15 +49,19 @@ class RedisClient(object):
                                                                    protocol=2,
                                                                    **kwargs))
 
-    def get(self, https):
+    def get(self, https, filters=None):
         """
         返回一个代理
+        :param https: True/False
+        :param filters: 属性过滤条件, 如 {"country": "CN", "isp": "电信"}
         :return:
         """
-        if https:
-            items = self.__conn.hvals(self.name)
-            proxies = list(filter(lambda x: json.loads(x).get("https"), items))
-            return choice(proxies) if proxies else None
+        if https or filters:
+            items = [json.loads(x) for x in self.__conn.hvals(self.name)]
+            if https:
+                items = list(filter(lambda x: x.get("https"), items))
+            items = filter_proxies(items, filters)
+            return json.dumps(choice(items), ensure_ascii=False) if items else None
         else:
             proxies = self.__conn.hkeys(self.name)
             proxy = choice(proxies) if proxies else None
@@ -71,12 +76,12 @@ class RedisClient(object):
         data = self.__conn.hset(self.name, proxy_obj.proxy, proxy_obj.to_json)
         return data
 
-    def pop(self, https):
+    def pop(self, https, filters=None):
         """
         弹出一个代理
         :return: dict {proxy: value}
         """
-        proxy = self.get(https)
+        proxy = self.get(https, filters)
         if proxy:
             self.__conn.hdel(self.name, json.loads(proxy).get("proxy", ""))
         return proxy if proxy else None
@@ -105,16 +110,18 @@ class RedisClient(object):
         """
         return self.__conn.hset(self.name, proxy_obj.proxy, proxy_obj.to_json)
 
-    def getAll(self, https):
+    def getAll(self, https, filters=None):
         """
         字典形式返回所有代理, 使用changeTable指定hash name
         :return:
         """
         items = self.__conn.hvals(self.name)
         if https:
-            return list(filter(lambda x: json.loads(x).get("https"), items))
-        else:
-            return items
+            items = list(filter(lambda x: json.loads(x).get("https"), items))
+        if filters:
+            items = [json.dumps(x, ensure_ascii=False)
+                     for x in filter_proxies([json.loads(i) for i in items], filters)]
+        return items
 
     def clear(self):
         """

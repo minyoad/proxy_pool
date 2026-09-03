@@ -23,6 +23,36 @@ from util.singleton import Singleton
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
+def filter_proxies(items, filters):
+    """
+    按属性过滤代理字典列表
+    Args:
+        items: 代理属性dict列表
+        filters: 过滤条件, 如 {"country": "CN", "province": "江苏省", "isp": "电信"}
+    Returns:
+        符合条件的dict列表
+    匹配规则: 大小写不敏感的包含匹配; country同时匹配iso_code(region)和国家名称
+    """
+    if not filters:
+        return items
+    result = []
+    for item in items:
+        matched = True
+        for key, expected in filters.items():
+            if not expected:
+                continue
+            if key == "country":
+                value = "%s|%s" % (item.get("region", ""), item.get("country", ""))
+            else:
+                value = item.get(key, "")
+            if not value or expected.lower() not in value.lower():
+                matched = False
+                break
+        if matched:
+            result.append(item)
+    return result
+
+
 class DbClient(withMetaclass(Singleton)):
     """
     DbClient DB工厂类 提供get/put/update/pop/delete/exists/getAll/clean/getCount/changeTable方法
@@ -104,8 +134,8 @@ class DbClient(withMetaclass(Singleton)):
     def pop(self, https, **kwargs):
         return self.client.pop(https, **kwargs)
 
-    def getAll(self, https):
-        return self.client.getAll(https)
+    def getAll(self, https, **kwargs):
+        return self.client.getAll(https, **kwargs)
 
     def clear(self):
         return self.client.clear()

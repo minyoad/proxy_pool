@@ -50,7 +50,11 @@ class DoValidator(object):
                 proxy.fail_count -= 1
             proxy.https = True if https_r else False
             if work_type == "raw":
-                proxy.region = cls.regionGetter(proxy) if cls.conf.proxyRegion else ""
+                if cls.conf.proxyRegion:
+                    cls.fillGeoInfo(proxy)
+            elif cls.conf.proxyRegion and not proxy.country:
+                # use校验时对缺失地理属性的老数据惰性回填
+                cls.fillGeoInfo(proxy)
         else:
             proxy.fail_count += 1
         return proxy
@@ -78,12 +82,30 @@ class DoValidator(object):
 
     @classmethod
     def regionGetter(cls, proxy):
+        """
+        查询代理的地理/ISP属性
+        返回示例: {"ip": "x.x.x.x", "region": "中国|江苏省|南京市|0|CN",
+                  "country": "中国", "province": "江苏省", "city": "南京市",
+                  "iso_code": "CN", "type": "ipv4"}
+        """
         try:
-            url = 'https://api.ip.sb/geoip/%s' % proxy.proxy.split(':')[0]
-            r = WebRequest().get(url=url, retry_time=1, timeout=2).json
-            return r.get('country_code')
+            url = 'https://ip.mybacc.com/query?ip=%s' % proxy.proxy.split(':')[0]
+            r = WebRequest().get(url=url, retry_time=1, timeout=3).json
+            return r if isinstance(r, dict) else {}
         except:
-            return 'error'
+            return {}
+
+    @classmethod
+    def fillGeoInfo(cls, proxy):
+        """填充代理的地理/ISP属性(region存iso_code), 查询失败不覆盖已有值"""
+        geo = cls.regionGetter(proxy)
+        if not geo:
+            return
+        proxy.region = geo.get("iso_code", "") or proxy.region
+        proxy.country = geo.get("country", "") or proxy.country
+        proxy.province = geo.get("province", "") or proxy.province
+        proxy.city = geo.get("city", "") or proxy.city
+        proxy.isp = geo.get("isp", "") or proxy.isp
 
 
 class _ThreadChecker(Thread):

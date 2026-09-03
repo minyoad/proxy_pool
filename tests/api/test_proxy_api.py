@@ -63,13 +63,30 @@ class TestGet:
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["https"] is True
-        mocks["get"].assert_called_with(True)
+        mocks["get"].assert_called_with(True, filters={})
 
     def test_get_http_filter(self, client, mocks):
         mocks["get"].return_value = None
 
         client.get("/get/")
-        mocks["get"].assert_called_with(False)
+        mocks["get"].assert_called_with(False, filters={})
+
+    def test_get_geo_filters(self, client, mocks):
+        """带 country/isp 等过滤参数 -> 透传到 handler"""
+        proxy = Proxy("1.2.3.4:8080", source="test", country="中国")
+        mocks["get"].return_value = proxy
+
+        resp = client.get("/get/?country=CN&isp=%E7%94%B5%E4%BF%A1")
+        assert resp.status_code == 200
+        assert resp.get_json()["country"] == "中国"
+        mocks["get"].assert_called_with(False, filters={"country": "CN", "isp": "电信"})
+
+    def test_get_blank_filter_ignored(self, client, mocks):
+        """空过滤参数被忽略"""
+        mocks["get"].return_value = None
+
+        client.get("/get/?country=&isp=")
+        mocks["get"].assert_called_with(False, filters={})
 
 
 class TestPop:

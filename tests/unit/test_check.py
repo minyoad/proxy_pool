@@ -103,11 +103,12 @@ class TestDoValidator:
 
         assert result.fail_count == 2
 
-    @patch("helper.check.DoValidator.regionGetter", return_value="US")
+    @patch("helper.check.DoValidator.regionGetter", return_value={
+        "iso_code": "US", "country": "美国", "province": "加州", "city": "洛杉矶", "isp": ""})
     @patch("helper.check.ConfigHandler")
     @patch("helper.check.ProxyValidator")
     def test_validator_raw_sets_region(self, mock_pv_cls, mock_conf_cls, mock_region):
-        """work_type='raw' + proxyRegion=True -> regionGetter 被调用"""
+        """work_type='raw' + proxyRegion=True -> 填充地理属性"""
         mock_pv_cls.http_validator = [MagicMock(return_value=True)]
         mock_pv_cls.https_validator = [MagicMock(return_value=True)]
 
@@ -120,13 +121,35 @@ class TestDoValidator:
             result = DoValidator.validator(proxy, "raw")
 
         assert result.region == "US"
+        assert result.country == "美国"
+        assert result.province == "加州"
+        assert result.city == "洛杉矶"
         mock_region.assert_called_once_with(proxy)
 
     @patch("helper.check.DoValidator.regionGetter")
     @patch("helper.check.ConfigHandler")
     @patch("helper.check.ProxyValidator")
     def test_validator_use_skips_region(self, mock_pv_cls, mock_conf_cls, mock_region):
-        """work_type='use' -> 不调用 regionGetter"""
+        """work_type='use' + 已有地理属性 -> 不调用 regionGetter"""
+        mock_pv_cls.http_validator = [MagicMock(return_value=True)]
+        mock_pv_cls.https_validator = [MagicMock(return_value=True)]
+
+        mock_conf = MagicMock()
+        mock_conf.proxyRegion = True
+
+        proxy = Proxy("1.2.3.4:8080", source="test", country="中国")
+
+        with patch.object(DoValidator, "conf", mock_conf):
+            DoValidator.validator(proxy, "use")
+
+        mock_region.assert_not_called()
+
+    @patch("helper.check.DoValidator.regionGetter", return_value={
+        "iso_code": "CN", "country": "中国", "province": "江苏省", "city": "南京市", "isp": ""})
+    @patch("helper.check.ConfigHandler")
+    @patch("helper.check.ProxyValidator")
+    def test_validator_use_backfills_geo(self, mock_pv_cls, mock_conf_cls, mock_region):
+        """work_type='use' + 老数据缺失地理属性 -> 惰性回填"""
         mock_pv_cls.http_validator = [MagicMock(return_value=True)]
         mock_pv_cls.https_validator = [MagicMock(return_value=True)]
 
@@ -136,35 +159,65 @@ class TestDoValidator:
         proxy = Proxy("1.2.3.4:8080", source="test")
 
         with patch.object(DoValidator, "conf", mock_conf):
-            DoValidator.validator(proxy, "use")
+            result = DoValidator.validator(proxy, "use")
 
-        mock_region.assert_not_called()
+        mock_region.assert_called_once_with(proxy)
+        assert result.country == "中国"
+        assert result.province == "江苏省"
 
 
 class TestRegionGetter:
     """DoValidator.regionGetter 测试"""
 
     @patch("helper.check.WebRequest")
-    def test_success_returns_country_code(self, mock_wr_cls):
-        """正常返回 -> country_code"""
+    def test_success_returns_geo_dict(self, mock_wr_cls):
+        """正常返回 -> 地理属性dict"""
+        geo = {"country": "中国", "province": "江苏省", "city": "南京市", "iso_code": "CN"}
         mock_wr = MagicMock()
-        mock_wr.get.return_value.json = {"country_code": "CN"}
+        mock_wr.get.return_value.json = geo
         mock_wr_cls.return_value = mock_wr
 
         proxy = Proxy("1.2.3.4:8080")
         result = DoValidator.regionGetter(proxy)
-        assert result == "CN"
+        assert result == geo
 
     @patch("helper.check.WebRequest")
-    def test_exception_returns_error(self, mock_wr_cls):
-        """异常 -> 'error'"""
+    def test_exception_returns_empty(self, mock_wr_cls):
+        """异常 -> 空dict"""
         mock_wr = MagicMock()
         mock_wr.get.side_effect = Exception("timeout")
         mock_wr_cls.return_value = mock_wr
 
         proxy = Proxy("1.2.3.4:8080")
         result = DoValidator.regionGetter(proxy)
-        assert result == "error"
+        assert result == {}
+
+
+class TestFillGeoInfo:
+    """DoValidator.fillGeoInfo 测试"""
+
+    def test_fill_geo_info(self):
+        """查询成功 -> 填充各字段"""
+        with patch("helper.check.DoValidator.regionGetter",
+                   return_value={"iso_code": "CN", "country": "中国",
+                                 "province": "江苏省", "city": "南京市", "isp": "电信"}):
+            proxy = Proxy("1.2.3.4:8080")
+            DoValidator.fillGeoInfo(proxy)
+
+        assert proxy.region == "CN"
+        assert proxy.country == "中国"
+        assert proxy.province == "江苏省"
+        assert proxy.city == "南京市"
+        assert proxy.isp == "电信"
+
+    def test_fill_geo_info_keeps_existing_on_empty(self):
+        """查询为空 -> 不覆盖已有属性"""
+        with patch("helper.check.DoValidator.regionGetter", return_value={}):
+            proxy = Proxy("1.2.3.4:8080", region="CN", country="中国")
+            DoValidator.fillGeoInfo(proxy)
+
+        assert proxy.region == "CN"
+        assert proxy.country == "中国"
 
 
 def _make_checker(work_type, proxy_handler, conf=None):

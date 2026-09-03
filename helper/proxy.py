@@ -18,7 +18,8 @@ import json
 class Proxy(object):
 
     def __init__(self, proxy, fail_count=0, region="", anonymous="",
-                 source="", check_count=0, last_status="", last_time="", https=False):
+                 source="", check_count=0, last_status="", last_time="", https=False,
+                 country="", province="", city="", isp=""):
         self._proxy = proxy
         self._fail_count = fail_count
         self._region = region
@@ -28,6 +29,10 @@ class Proxy(object):
         self._last_status = last_status
         self._last_time = last_time
         self._https = https
+        self._country = country
+        self._province = province
+        self._city = city
+        self._isp = isp
 
     @classmethod
     def createFromJson(cls, proxy_json):
@@ -40,7 +45,11 @@ class Proxy(object):
                    check_count=_dict.get("check_count", 0),
                    last_status=_dict.get("last_status", ""),
                    last_time=_dict.get("last_time", ""),
-                   https=_dict.get("https", False)
+                   https=_dict.get("https", False),
+                   country=_dict.get("country", ""),
+                   province=_dict.get("province", ""),
+                   city=_dict.get("city", ""),
+                   isp=_dict.get("isp", "")
                    )
 
     @property
@@ -89,12 +98,36 @@ class Proxy(object):
         return self._https
 
     @property
+    def country(self):
+        """ 国家(名称, 如'中国') """
+        return self._country
+
+    @property
+    def province(self):
+        """ 省份/州 """
+        return self._province
+
+    @property
+    def city(self):
+        """ 城市 """
+        return self._city
+
+    @property
+    def isp(self):
+        """ 运营商/ISP """
+        return self._isp
+
+    @property
     def to_dict(self):
         """ 属性字典 """
         return {"proxy": self.proxy,
                 "https": self.https,
                 "fail_count": self.fail_count,
                 "region": self.region,
+                "country": self.country,
+                "province": self.province,
+                "city": self.city,
+                "isp": self.isp,
                 "anonymous": self.anonymous,
                 "source": self.source,
                 "check_count": self.check_count,
@@ -129,6 +162,22 @@ class Proxy(object):
     @region.setter
     def region(self, value):
         self._region = value
+
+    @country.setter
+    def country(self, value):
+        self._country = value
+
+    @province.setter
+    def province(self, value):
+        self._province = value
+
+    @city.setter
+    def city(self, value):
+        self._city = value
+
+    @isp.setter
+    def isp(self, value):
+        self._isp = value
 
     def add_source(self, source_str):
         if source_str:

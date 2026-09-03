@@ -16,6 +16,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from db.dbClient import DbClient
+from db.dbClient import filter_proxies
 
 
 class TestParseDbConn:
@@ -160,3 +161,63 @@ class TestDbClientDelegation:
         result = db.test()
         db.client.test.assert_called_once()
         assert result is True
+
+
+class TestFilterProxies:
+    """filter_proxies 过滤测试"""
+
+    def _items(self):
+        return [
+            {"proxy": "1.1.1.1:80", "region": "CN", "country": "中国",
+             "province": "江苏省", "city": "南京市", "isp": "电信"},
+            {"proxy": "2.2.2.2:80", "region": "US", "country": "美国",
+             "province": "加州", "city": "洛杉矶", "isp": "Comcast"},
+            {"proxy": "3.3.3.3:80", "region": "", "country": "",
+             "province": "", "city": "", "isp": ""},
+        ]
+
+    def test_no_filters_returns_all(self):
+        assert len(filter_proxies(self._items(), None)) == 3
+        assert len(filter_proxies(self._items(), {})) == 3
+
+    def test_filter_by_iso_code(self):
+        result = filter_proxies(self._items(), {"country": "CN"})
+        assert len(result) == 1
+        assert result[0]["proxy"] == "1.1.1.1:80"
+
+    def test_filter_by_country_name(self):
+        result = filter_proxies(self._items(), {"country": "美国"})
+        assert len(result) == 1
+        assert result[0]["proxy"] == "2.2.2.2:80"
+
+    def test_filter_by_country_case_insensitive(self):
+        result = filter_proxies(self._items(), {"country": "us"})
+        assert len(result) == 1
+        assert result[0]["proxy"] == "2.2.2.2:80"
+
+    def test_filter_by_province(self):
+        result = filter_proxies(self._items(), {"province": "江苏省"})
+        assert len(result) == 1
+        assert result[0]["proxy"] == "1.1.1.1:80"
+
+    def test_filter_by_city(self):
+        result = filter_proxies(self._items(), {"city": "南京"})
+        assert len(result) == 1
+
+    def test_filter_by_isp_case_insensitive(self):
+        result = filter_proxies(self._items(), {"isp": "comcast"})
+        assert len(result) == 1
+        assert result[0]["proxy"] == "2.2.2.2:80"
+
+    def test_filter_multiple_conditions(self):
+        result = filter_proxies(self._items(), {"country": "CN", "isp": "电信"})
+        assert len(result) == 1
+        assert result[0]["proxy"] == "1.1.1.1:80"
+
+    def test_filter_no_match_returns_empty(self):
+        assert filter_proxies(self._items(), {"country": "JP"}) == []
+
+    def test_filter_missing_attribute_not_matched(self):
+        """属性为空的代理不匹配任何条件"""
+        assert filter_proxies(self._items(), {"isp": "电信"})[0]["proxy"] == "1.1.1.1:80"
+        assert len(filter_proxies(self._items(), {"isp": ""})) == 3
