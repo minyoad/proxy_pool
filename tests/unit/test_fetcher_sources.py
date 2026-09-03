@@ -72,6 +72,7 @@ class TestFetcherInterface(object):
         ("fetcher.sources.roundproxies", "RoundProxiesFetcher"),
         ("fetcher.sources.github_list", "GithubListFetcher"),
         ("fetcher.sources.github_json", "GithubJsonFetcher"),
+        ("fetcher.sources.proxydb", "ProxydbFetcher"),
     ]
 
     def test_all_fetchers_have_name_url_enabled(self):
@@ -479,6 +480,60 @@ class TestGithubListFetcher(object):
         mock_wr.return_value.get.return_value = _make_response(text=text)
         result = list(GithubListFetcher().fetch())
         assert sorted(result) == ["1.2.3.4:8080", "5.6.7.8:3128"]
+
+
+class TestProxydbFetcher(object):
+
+    @patch("fetcher.sources.proxydb.WebRequest")
+    @patch("fetcher.sources.proxydb.sleep", return_value=None)
+    def test_fetch(self, mock_sleep, mock_wr):
+        from fetcher.sources.proxydb import ProxydbFetcher
+        html = (
+            '<table><tr><th>IP</th><th>Port</th></tr>'
+            '<tr><td><a href="/1.2.3.4/8080#http">1.2.3.4</a></td>'
+            '<td><a href="/1.2.3.4/8080#http">8080</a></td></tr>'
+            '<tr><td><a href="/5.6.7.8/3128#http">5.6.7.8</a></td>'
+            '<td><a href="/5.6.7.8/3128#http">3128</a></td></tr>'
+            '</table>'
+        )
+        tree = etree.HTML(html)
+        mock_wr.return_value.get.return_value = _make_response(tree=tree)
+        result = list(ProxydbFetcher().fetch(page_count=1))
+        assert "1.2.3.4:8080" in result
+        assert "5.6.7.8:3128" in result
+
+    @patch("fetcher.sources.proxydb.WebRequest")
+    @patch("fetcher.sources.proxydb.sleep", return_value=None)
+    def test_fetch_skips_invalid_rows(self, mock_sleep, mock_wr):
+        from fetcher.sources.proxydb import ProxydbFetcher
+        html = (
+            '<table><tr><th>IP</th><th>Port</th></tr>'
+            '<tr><td><a href="/1.2.3.4/8080#http">1.2.3.4</a></td></tr>'
+            '<tr><td>no link here</td></tr>'
+            '<tr><td><a href="/not-a-proxy">bad</a></td></tr>'
+            '</table>'
+        )
+        tree = etree.HTML(html)
+        mock_wr.return_value.get.return_value = _make_response(tree=tree)
+        result = list(ProxydbFetcher().fetch(page_count=1))
+        assert result == ["1.2.3.4:8080"]
+
+    @patch("fetcher.sources.proxydb.WebRequest")
+    @patch("fetcher.sources.proxydb.sleep", return_value=None)
+    def test_fetch_multi_page(self, mock_sleep, mock_wr):
+        from fetcher.sources.proxydb import ProxydbFetcher
+        page1 = '<table><tr><th>IP</th><th>Port</th></tr>' \
+                '<tr><td><a href="/1.2.3.4/8080#http">1.2.3.4</a></td></tr></table>'
+        page2 = '<table><tr><th>IP</th><th>Port</th></tr>' \
+                '<tr><td><a href="/5.6.7.8/3128#http">5.6.7.8</a></td></tr></table>'
+        mock_wr.return_value.get.side_effect = [
+            _make_response(tree=etree.HTML(page1)),
+            _make_response(tree=etree.HTML(page2)),
+        ]
+        result = list(ProxydbFetcher().fetch(page_count=2))
+        assert "1.2.3.4:8080" in result
+        assert "5.6.7.8:3128" in result
+        assert mock_wr.return_value.get.call_count == 2
 
 
 class TestGithubJsonFetcher(object):
