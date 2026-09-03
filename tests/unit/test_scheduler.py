@@ -163,8 +163,8 @@ class TestRunScheduler:
     @patch("helper.scheduler.__refresh")
     @patch("helper.scheduler.ConfigHandler")
     @patch("helper.scheduler.LogHandler")
-    def test_refresh_job_interval_10min(self, mock_log, mock_conf_cls, mock_refresh, mock_sched_cls):
-        """刷新任务间隔 10 分钟"""
+    def test_refresh_job_interval_30min(self, mock_log, mock_conf_cls, mock_refresh, mock_sched_cls):
+        """刷新任务间隔 30 分钟"""
         mock_conf = MagicMock()
         mock_conf.timezone = "Asia/Shanghai"
         mock_conf_cls.return_value = mock_conf
@@ -176,4 +176,4 @@ class TestRunScheduler:
         calls = mock_sched.add_job.call_args_list
         call = calls[0]
         assert call[0][1] == "interval"
-        assert call[1]["minutes"] == 10
+        assert call[1]["minutes"] == 30

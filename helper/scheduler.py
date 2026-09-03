@@ -68,7 +68,7 @@ def runScheduler():
     scheduler_log = LogHandler("scheduler")
     scheduler = BlockingScheduler(logger=scheduler_log, timezone=timezone)
 
-    scheduler.add_job(__refresh, 'interval', minutes=10, id="proxy_refresh", name="proxy刷新")
+    scheduler.add_job(__refresh, 'interval', minutes=30, id="proxy_refresh", name="proxy刷新")
     executors = {
         'default': {'type': 'threadpool', 'max_workers': 20},
         'processpool': ProcessPoolExecutor(max_workers=5)
