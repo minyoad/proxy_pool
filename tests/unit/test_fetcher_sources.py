@@ -70,6 +70,7 @@ class TestFetcherInterface(object):
         ("fetcher.sources.proxifly", "ProxiFlyFetcher"),
         ("fetcher.sources.daili66", "DaiLi66Fetcher"),
         ("fetcher.sources.roundproxies", "RoundProxiesFetcher"),
+        ("fetcher.sources.github_list", "GithubListFetcher"),
     ]
 
     def test_all_fetchers_have_name_url_enabled(self):
@@ -414,3 +415,66 @@ class TestRoundProxiesFetcher(object):
         mock_wr.return_value.get.return_value = _make_response(json_data=None)
         result = list(RoundProxiesFetcher().fetch())
         assert result == []
+
+
+class TestGithubListFetcher(object):
+
+    @patch("fetcher.sources.github_list.WebRequest")
+    def test_fetch(self, mock_wr):
+        from fetcher.sources.github_list import GithubListFetcher
+        text = "1.2.3.4:8080\n5.6.7.8:3128\n"
+        mock_wr.return_value.get.return_value = _make_response(text=text)
+        result = list(GithubListFetcher().fetch())
+        assert "1.2.3.4:8080" in result
+        assert "5.6.7.8:3128" in result
+
+    @patch("fetcher.sources.github_list.WebRequest")
+    def test_fetch_multiple_urls_merged(self, mock_wr):
+        """多个列表合并, 请求次数与 url_list 一致"""
+        from fetcher.sources.github_list import GithubListFetcher
+
+        def side_effect(url, **kwargs):
+            texts = {
+                "TheSpeedX": "1.1.1.1:80\n",
+                "monosans": "2.2.2.2:80\n",
+                "clarketm": "3.3.3.3:80\n",
+            }
+            for key, text in texts.items():
+                if key in url:
+                    return _make_response(text=text)
+            return _make_response(text="")
+
+        mock_wr.return_value.get.side_effect = side_effect
+        result = list(GithubListFetcher().fetch())
+        assert sorted(result) == ["1.1.1.1:80", "2.2.2.2:80", "3.3.3.3:80"]
+        assert mock_wr.return_value.get.call_count == len(GithubListFetcher.url_list)
+
+    @patch("fetcher.sources.github_list.WebRequest")
+    def test_fetch_deduplicates_across_lists(self, mock_wr):
+        """跨列表重复代理去重"""
+        from fetcher.sources.github_list import GithubListFetcher
+
+        def side_effect(url, **kwargs):
+            text = "1.2.3.4:8080\n" if "TheSpeedX" in url else \
+                  ("1.2.3.4:8080\n5.6.7.8:3128\n" if "monosans" in url else "")
+            return _make_response(text=text)
+
+        mock_wr.return_value.get.side_effect = side_effect
+        result = list(GithubListFetcher().fetch())
+        assert sorted(result) == ["1.2.3.4:8080", "5.6.7.8:3128"]
+
+    @patch("fetcher.sources.github_list.WebRequest")
+    def test_fetch_empty_text_returns_empty(self, mock_wr):
+        from fetcher.sources.github_list import GithubListFetcher
+        mock_wr.return_value.get.return_value = _make_response(text="")
+        result = list(GithubListFetcher().fetch())
+        assert result == []
+
+    @patch("fetcher.sources.github_list.WebRequest")
+    def test_fetch_ignores_invalid_lines(self, mock_wr):
+        """非 ip:port 行被忽略"""
+        from fetcher.sources.github_list import GithubListFetcher
+        text = "1.2.3.4:8080\nnot a proxy\n# comment\n1.2.3.4:8\n5.6.7.8:3128\n"
+        mock_wr.return_value.get.return_value = _make_response(text=text)
+        result = list(GithubListFetcher().fetch())
+        assert sorted(result) == ["1.2.3.4:8080", "5.6.7.8:3128"]
