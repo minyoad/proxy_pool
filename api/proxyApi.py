@@ -83,6 +83,9 @@ tr:hover{background:#f8f9fa}
 .pagination span{font-size:13px;color:#666}
 .copy-btn{padding:2px 8px;border:1px solid #ddd;border-radius:3px;background:#fafafa;cursor:pointer;font-size:11px}
 .copy-btn:hover{background:#3498db;color:#fff;border-color:#3498db}
+th[onclick]{cursor:pointer;user-select:none}
+th[onclick]:hover{color:#3498db}
+.sort-arrow{color:#3498db;font-size:10px}
 .loading{text-align:center;padding:30px;color:#999}
 </style>
 </head>
@@ -116,15 +119,15 @@ tr:hover{background:#f8f9fa}
     <tr>
       <th><input type="checkbox" id="selectAll" onclick="toggleAll(this.checked)"></th>
       <th>#</th>
-      <th>Proxy</th>
-      <th>Type</th>
-      <th>Region</th>
-      <th>Country</th>
-      <th>Province</th>
-      <th>City</th>
-      <th>ISP</th>
-      <th>Source</th>
-      <th>Fails</th>
+      <th onclick="sortBy('proxy')">Proxy <span id="s_proxy" class="sort-arrow"></span></th>
+      <th onclick="sortBy('https')">Type <span id="s_https" class="sort-arrow"></span></th>
+      <th onclick="sortBy('region')">Region <span id="s_region" class="sort-arrow"></span></th>
+      <th onclick="sortBy('country')">Country <span id="s_country" class="sort-arrow"></span></th>
+      <th onclick="sortBy('province')">Province <span id="s_province" class="sort-arrow"></span></th>
+      <th onclick="sortBy('city')">City <span id="s_city" class="sort-arrow"></span></th>
+      <th onclick="sortBy('isp')">ISP <span id="s_isp" class="sort-arrow"></span></th>
+      <th onclick="sortBy('source')">Source <span id="s_source" class="sort-arrow"></span></th>
+      <th onclick="sortBy('fail_count')">Fails <span id="s_fail_count" class="sort-arrow"></span></th>
       <th>Action</th>
     </tr>
   </thead>
@@ -136,7 +139,9 @@ tr:hover{background:#f8f9fa}
   <button id="nextBtn" onclick="nextPage()" disabled>Next &raquo;</button>
 </div>
 <script>
-var allData=[], page=1, pageSize=50;
+var allData=[], page=1, pageSize=50, sortKey='', sortAsc=true;
+var SORT_KEYS=['proxy','https','region','country','province','city','isp','source','fail_count'];
+function sortBy(key){if(sortKey===key){sortAsc=!sortAsc}else{sortKey=key;sortAsc=true}allData.sort(function(a,b){var x=a[key],y=b[key];if(key==='https'){x=x?1:0;y=y?1:0}else if(typeof x==='number'||typeof y==='number'){x=Number(x)||0;y=Number(y)||0}else{x=String(x==null?'':x).toLowerCase();y=String(y==null?'':y).toLowerCase()}return x<y?-1:x>y?1:0});if(!sortAsc)allData.reverse();for(var i=0;i<SORT_KEYS.length;i++){var el=document.getElementById('s_'+SORT_KEYS[i]);if(el)el.textContent=''}var cur=document.getElementById('s_'+key);if(cur)cur.textContent=sortAsc?'\u25B2':'\u25BC';page=1;render()}
 function queryParams(){var p=[];var t=document.getElementById('f_type').value;if(t)p.push('type='+t);var c=document.getElementById('f_country').value.trim();if(c)p.push('country='+encodeURIComponent(c));var pr=document.getElementById('f_province').value.trim();if(pr)p.push('province='+encodeURIComponent(pr));var ci=document.getElementById('f_city').value.trim();if(ci)p.push('city='+encodeURIComponent(ci));var is=document.getElementById('f_isp').value.trim();if(is)p.push('isp='+encodeURIComponent(is));return p}
 function loadData(){var tbody=document.getElementById('tbody');tbody.innerHTML='<tr><td colspan="12" class="loading">Loading...</td></tr>';var qs=queryParams();var url='/all/'+(qs.length?'?'+qs.join('&'):'');document.getElementById('apiUrl').value=location.origin+url;fetch(url).then(function(r){return r.json()}).then(function(d){allData=d.filter(function(p){var s=document.getElementById('f_search').value.trim().toLowerCase();return!s||p.proxy.toLowerCase().indexOf(s)>=0});page=1;render();loadCount()}).catch(function(e){tbody.innerHTML='<tr><td colspan="12" class="empty">Error: '+e.message+'</td></tr>'})}
 function render(){var tbody=document.getElementById('tbody');if(!allData.length){tbody.innerHTML='<tr><td colspan="12" class="empty">No proxies found</td></tr>'}else{var start=(page-1)*pageSize,end=Math.min(start+pageSize,allData.length);var rows=[];for(var i=start;i<end;i++){var p=allData[i];rows.push('<tr>'+'<td><input type="checkbox" class="row-check" data-proxy="'+p.proxy+'"></td>'+'<td>'+(i+1)+'</td>'+'<td><b>'+p.proxy+'</b></td>'+'<td><span class="tag tag-'+(p.https?'https':'http')+'">'+(p.https?'HTTPS':'HTTP')+'</span></td>'+'<td>'+(p.region||'-')+'</td>'+'<td>'+(p.country||'-')+'</td>'+'<td>'+(p.province||'-')+'</td>'+'<td>'+(p.city||'-')+'</td>'+'<td>'+(p.isp||'-')+'</td>'+'<td>'+(p.source||'-')+'</td>'+'<td class="'+(p.fail_count>0?'fail':'')+'">'+p.fail_count+'</td>'+'<td><button class="copy-btn" onclick="copy(this,\''+p.proxy+'\')">Copy</button></td>'+'</tr>')}tbody.innerHTML=rows.join('')}var total=Math.ceil(allData.length/pageSize)||1;document.getElementById('pageInfo').textContent=page+' / '+total;document.getElementById('prevBtn').disabled=page<=1;document.getElementById('nextBtn').disabled=page>=total}
