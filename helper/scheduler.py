@@ -27,32 +27,48 @@ from handler.configHandler import ConfigHandler
 def __runProxyFetch():
     proxy_queue = Queue()
     proxy_fetcher = Fetcher()
+    proxy_handler = ProxyHandler()
+    # 已入库代理跳过raw校验(已入库代理由use校验定期复查), 只校验新代理
+    existing = set(_.proxy for _ in proxy_handler.getAll())
 
+    new_count = 0
     for proxy in proxy_fetcher.run():
+        if proxy.proxy in existing:
+            continue
+        new_count += 1
         proxy_queue.put(proxy)
 
+    scheduler_log = LogHandler("scheduler")
+    scheduler_log.info("ProxyFetch: %d new proxies to check" % new_count)
     Checker("raw", proxy_queue)
 
 
 def __runProxyCheck():
+    """use全量校验: 由__refresh在采集完成后触发, 不再独立定时执行"""
     proxy_handler = ProxyHandler()
     proxy_queue = Queue()
-    if proxy_handler.db.getCount().get("total", 0) < proxy_handler.conf.poolSizeMin:
-        __runProxyFetch()
     for proxy in proxy_handler.getAll():
         proxy_queue.put(proxy)
     Checker("use", proxy_queue)
 
 
-def runScheduler():
+def __refresh():
+    """刷新流程: 采集 -> (池子不足时补抓) -> use全量校验"""
     __runProxyFetch()
+    proxy_handler = ProxyHandler()
+    if proxy_handler.db.getCount().get("total", 0) < proxy_handler.conf.poolSizeMin:
+        __runProxyFetch()
+    __runProxyCheck()
+
+
+def runScheduler():
+    __refresh()
 
     timezone = ConfigHandler().timezone
     scheduler_log = LogHandler("scheduler")
     scheduler = BlockingScheduler(logger=scheduler_log, timezone=timezone)
 
-    scheduler.add_job(__runProxyFetch, 'interval', minutes=5, id="proxy_fetch", name="proxy采集")
-    scheduler.add_job(__runProxyCheck, 'interval', minutes=2, id="proxy_check", name="proxy检查")
+    scheduler.add_job(__refresh, 'interval', minutes=10, id="proxy_refresh", name="proxy刷新")
     executors = {
         'default': {'type': 'threadpool', 'max_workers': 20},
         'processpool': ProcessPoolExecutor(max_workers=5)

@@ -38,12 +38,18 @@ class TestRunProxyFetch:
 
     @patch("helper.scheduler.Checker")
     @patch("helper.scheduler.Fetcher")
-    def test_fetcher_yields_go_to_queue(self, mock_fetcher_cls, mock_checker):
-        """Fetcher yield 的代理放入 queue，传给 Checker"""
+    @patch("helper.scheduler.ProxyHandler")
+    def test_fetcher_yields_go_to_queue(self, mock_ph_cls, mock_fetcher_cls, mock_checker):
+        """Fetcher yield 的新代理放入 queue，传给 Checker"""
         mock_proxy = MagicMock()
+        mock_proxy.proxy = "1.2.3.4:8080"
         mock_fetcher = MagicMock()
         mock_fetcher.run.return_value = iter([mock_proxy])
         mock_fetcher_cls.return_value = mock_fetcher
+
+        mock_ph = MagicMock()
+        mock_ph.getAll.return_value = []
+        mock_ph_cls.return_value = mock_ph
 
         _get_attr("__runProxyFetch")()
 
@@ -51,49 +57,96 @@ class TestRunProxyFetch:
         mock_checker.assert_called_once()
         call_args = mock_checker.call_args
         assert call_args[0][0] == "raw"
+        queue = call_args[0][1]
+        assert queue.get(block=False) is mock_proxy
+
+    @patch("helper.scheduler.Checker")
+    @patch("helper.scheduler.Fetcher")
+    @patch("helper.scheduler.ProxyHandler")
+    def test_existing_proxies_skipped(self, mock_ph_cls, mock_fetcher_cls, mock_checker):
+        """已入库代理跳过raw校验, 不进 queue"""
+        new_proxy = MagicMock()
+        new_proxy.proxy = "1.1.1.1:80"
+        old_proxy = MagicMock()
+        old_proxy.proxy = "2.2.2.2:80"
+        mock_fetcher = MagicMock()
+        mock_fetcher.run.return_value = iter([old_proxy, new_proxy])
+        mock_fetcher_cls.return_value = mock_fetcher
+
+        existing = MagicMock()
+        existing.proxy = "2.2.2.2:80"
+        mock_ph = MagicMock()
+        mock_ph.getAll.return_value = [existing]
+        mock_ph_cls.return_value = mock_ph
+
+        _get_attr("__runProxyFetch")()
+
+        queue = mock_checker.call_args[0][1]
+        assert queue.qsize() == 1
+        assert queue.get(block=False) is new_proxy
 
 
 class TestRunProxyCheck:
 
-    @patch("helper.scheduler.__runProxyFetch")
     @patch("helper.scheduler.Checker")
     @patch("helper.scheduler.ProxyHandler")
-    def test_triggers_fetch_when_pool_low(self, mock_ph_cls, mock_checker, mock_fetch):
-        """count < poolSizeMin -> 触发 __runProxyFetch"""
+    def test_all_proxies_go_to_use_check(self, mock_ph_cls, mock_checker):
+        """getAll 的代理放入 queue，传给 use Checker"""
+        mock_proxy = MagicMock()
         mock_ph = MagicMock()
-        mock_ph.db.getCount.return_value = {"total": 5}
-        mock_ph.conf.poolSizeMin = 20
-        mock_ph.getAll.return_value = []
+        mock_ph.getAll.return_value = [mock_proxy]
         mock_ph_cls.return_value = mock_ph
 
         _get_attr("__runProxyCheck")()
 
-        mock_fetch.assert_called_once()
+        mock_checker.assert_called_once()
+        call_args = mock_checker.call_args
+        assert call_args[0][0] == "use"
+        queue = call_args[0][1]
+        assert queue.get(block=False) is mock_proxy
 
+
+class TestRefresh:
+
+    @patch("helper.scheduler.__runProxyCheck")
     @patch("helper.scheduler.__runProxyFetch")
-    @patch("helper.scheduler.Checker")
     @patch("helper.scheduler.ProxyHandler")
-    def test_skips_fetch_when_pool_sufficient(self, mock_ph_cls, mock_checker, mock_fetch):
-        """count >= poolSizeMin -> 不触发 __runProxyFetch"""
+    def test_refresh_fetch_then_check(self, mock_ph_cls, mock_fetch, mock_check):
+        """池子充足: fetch 一次后 check"""
         mock_ph = MagicMock()
         mock_ph.db.getCount.return_value = {"total": 50}
         mock_ph.conf.poolSizeMin = 20
-        mock_ph.getAll.return_value = []
         mock_ph_cls.return_value = mock_ph
 
-        _get_attr("__runProxyCheck")()
+        _get_attr("__refresh")()
 
-        mock_fetch.assert_not_called()
+        assert mock_fetch.call_count == 1
+        mock_check.assert_called_once()
+
+    @patch("helper.scheduler.__runProxyCheck")
+    @patch("helper.scheduler.__runProxyFetch")
+    @patch("helper.scheduler.ProxyHandler")
+    def test_refresh_refetch_when_pool_low(self, mock_ph_cls, mock_fetch, mock_check):
+        """池子低于 poolSizeMin: 补抓一次后再 check"""
+        mock_ph = MagicMock()
+        mock_ph.db.getCount.return_value = {"total": 5}
+        mock_ph.conf.poolSizeMin = 20
+        mock_ph_cls.return_value = mock_ph
+
+        _get_attr("__refresh")()
+
+        assert mock_fetch.call_count == 2
+        mock_check.assert_called_once()
 
 
 class TestRunScheduler:
 
     @patch("helper.scheduler.BlockingScheduler")
-    @patch("helper.scheduler.__runProxyFetch")
+    @patch("helper.scheduler.__refresh")
     @patch("helper.scheduler.ConfigHandler")
     @patch("helper.scheduler.LogHandler")
-    def test_adds_two_jobs(self, mock_log, mock_conf_cls, mock_fetch, mock_sched_cls):
-        """runScheduler 添加两个定时任务"""
+    def test_adds_single_refresh_job(self, mock_log, mock_conf_cls, mock_refresh, mock_sched_cls):
+        """runScheduler 只添加一个刷新定时任务(不再有独立的use检查任务)"""
         mock_conf = MagicMock()
         mock_conf.timezone = "Asia/Shanghai"
         mock_conf_cls.return_value = mock_conf
@@ -102,14 +155,16 @@ class TestRunScheduler:
 
         scheduler_mod.runScheduler()
 
-        assert mock_sched.add_job.call_count == 2
+        assert mock_sched.add_job.call_count == 1
+        # 启动时立即执行一次刷新
+        mock_refresh.assert_called_once()
 
     @patch("helper.scheduler.BlockingScheduler")
-    @patch("helper.scheduler.__runProxyFetch")
+    @patch("helper.scheduler.__refresh")
     @patch("helper.scheduler.ConfigHandler")
     @patch("helper.scheduler.LogHandler")
-    def test_fetch_job_interval_5min(self, mock_log, mock_conf_cls, mock_fetch, mock_sched_cls):
-        """采集任务间隔 5 分钟"""
+    def test_refresh_job_interval_10min(self, mock_log, mock_conf_cls, mock_refresh, mock_sched_cls):
+        """刷新任务间隔 10 分钟"""
         mock_conf = MagicMock()
         mock_conf.timezone = "Asia/Shanghai"
         mock_conf_cls.return_value = mock_conf
@@ -119,25 +174,6 @@ class TestRunScheduler:
         scheduler_mod.runScheduler()
 
         calls = mock_sched.add_job.call_args_list
-        first_call = calls[0]
-        assert first_call[0][1] == "interval"
-        assert first_call[1]["minutes"] == 5
-
-    @patch("helper.scheduler.BlockingScheduler")
-    @patch("helper.scheduler.__runProxyFetch")
-    @patch("helper.scheduler.ConfigHandler")
-    @patch("helper.scheduler.LogHandler")
-    def test_check_job_interval_2min(self, mock_log, mock_conf_cls, mock_fetch, mock_sched_cls):
-        """检查任务间隔 2 分钟"""
-        mock_conf = MagicMock()
-        mock_conf.timezone = "Asia/Shanghai"
-        mock_conf_cls.return_value = mock_conf
-        mock_sched = MagicMock()
-        mock_sched_cls.return_value = mock_sched
-
-        scheduler_mod.runScheduler()
-
-        calls = mock_sched.add_job.call_args_list
-        second_call = calls[1]
-        assert second_call[0][1] == "interval"
-        assert second_call[1]["minutes"] == 2
+        call = calls[0]
+        assert call[0][1] == "interval"
+        assert call[1]["minutes"] == 10
